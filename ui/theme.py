@@ -3,6 +3,7 @@
 from core.packageManager import (
     ALREADY_INSTALLED,
     INSTALLED,
+    INSTALLED_UNVERIFIED,
     UPGRADED,
     SKIPPED,
     FAILED,
@@ -12,6 +13,7 @@ from core.packageManager import (
 STATUS_COLORS = {
     ALREADY_INSTALLED: "green",
     INSTALLED: "green",
+    INSTALLED_UNVERIFIED: "dark_orange",
     UPGRADED: "cyan",
     SKIPPED: "yellow",
     FAILED: "red",

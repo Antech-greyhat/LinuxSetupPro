@@ -63,7 +63,7 @@ class BannerGenerator:
         return command
 
     def persist(self, command, shell=None):
-        path = shellConfig.insert_banner_block([command], shell=shell)
+        path = shellConfig.insert_banner_block([command], shell=shell, console=self.console)
         return path
 
     def _command_with_fallback(self, text, font, scheme):

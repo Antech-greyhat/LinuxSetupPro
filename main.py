@@ -140,7 +140,7 @@ def customization_flow(inst, catalog, plat, console, dry_run):
 
     default_editor = _choose_default_editor(selected)
     if default_editor and not dry_run:
-        path = shellConfig.set_editor(default_editor)
+        path = shellConfig.set_editor(default_editor, console=console)
         notes.append(f"Default EDITOR set to {default_editor} in {path}. "
                      f"Change it later with: python3 main.py --set-editor")
     elif default_editor:
@@ -177,6 +177,8 @@ def _install_oh_my_zsh(console, dry_run):
         return PackageRecord("Customization", "oh-my-zsh", "Community zsh configuration framework.",
                              FAILED, result=result, cause="zsh missing",
                              suggestion="Select oh-my-zsh again after zsh installs successfully.")
+    # oh-my-zsh's installer rewrites ~/.zshrc; preserve the current one first.
+    shellConfig.backup_dotfile(shellConfig.rc_path_for_shell("zsh"), console)
     command = f'sh -c "$(curl -fsSL {url})" "" --unattended'
     env = dict(os.environ, RUNZSH="no", CHSH="no")
     try:
@@ -279,7 +281,7 @@ def action_report(console):
 def action_remove_banner(console):
     removed_any = False
     for shell in ("bash", "zsh"):
-        path, removed = shellConfig.remove_banner_block(shell)
+        path, removed = shellConfig.remove_banner_block(shell, console=console)
         if removed:
             console.print(f"Removed banner block from {path}.", style=theme.DIM)
             removed_any = True
@@ -299,7 +301,7 @@ def action_set_editor(catalog, console, dry_run):
     if dry_run:
         console.print(f"Would set EDITOR to {editor} (dry-run).", style=theme.DIM)
         return
-    path = shellConfig.set_editor(editor)
+    path = shellConfig.set_editor(editor, console=console)
     console.print(f"EDITOR set to {editor} in {path}. Restart your terminal to apply.", style=theme.DIM)
 
 

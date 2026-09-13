@@ -2,6 +2,40 @@
 
 Thanks for your interest in improving LinuxSetupPro. This project values small, precise changes and honest behavior over feature count.
 
+## Your First Contribution
+
+New to this? Here is the whole flow, start to finish. Every step is a command you can copy and run.
+
+1. Fork the repository — click the **Fork** button at the top right of the [GitHub page](https://github.com/Antech-greyhat/LinuxSetupPro) to create your own copy under your account.
+2. Clone your fork to your machine (replace `<your-username>` with your GitHub username):
+
+   ```bash
+   git clone https://github.com/<your-username>/LinuxSetupPro.git
+   cd LinuxSetupPro
+   ```
+
+3. Create a branch for your change so your work stays separate from `master` and is easy to review:
+
+   ```bash
+   git checkout -b my-change
+   ```
+
+4. Make your edit — see the sections below for exactly what to change: [Adding a new package](#adding-a-new-package), [Adding a new error pattern](#adding-a-new-error-pattern), or [Adding support for a new distribution](#adding-support-for-a-new-distribution).
+5. Commit your change with a message that says what changed and why, not just "fix":
+
+   ```bash
+   git add .
+   git commit -m "Add ripgrep to the Essentials category"
+   ```
+
+6. Push your branch to your fork:
+
+   ```bash
+   git push origin my-change
+   ```
+
+7. Open a pull request — GitHub shows a **Compare & pull request** button after you push; click it to send your change here for review.
+
 ## Adding a new package
 
 No code changes are required. Edit `config/packages.yaml` and add an entry under the appropriate category:

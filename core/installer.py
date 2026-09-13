@@ -1,11 +1,15 @@
 """Drives install sequences using the selected backend. Holds no platform commands."""
 
 import os
+import shlex
+import subprocess
 
 import yaml
 
 from core.packageManager import (
     OperationResult,
+    INSTALLED,
+    INSTALLED_UNVERIFIED,
     SKIPPED,
     FAILED,
 )
@@ -13,6 +17,9 @@ from core.progress import ProgressRenderer
 from core.report import PackageRecord
 
 _CATALOG = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "packages.yaml")
+
+# A verify_cmd must answer quickly; a hung check must never stall the whole run.
+_VERIFY_TIMEOUT = 5
 
 
 def load_catalog(path=_CATALOG):
@@ -58,7 +65,8 @@ class Installer:
                                  suggestion="Install it from a Linux chroot (proot-distro) or a language package manager.",
                                  available=False)
 
-        result = self._run_install(index, total, name, pkg)
+        verify_cmd = entry.get("verify_cmd")
+        result = self._run_install(index, total, name, pkg, verify_cmd)
         record = PackageRecord(entry.get("_category", ""), name, description,
                                result.status, locked, result)
         if result.status == FAILED:
@@ -67,8 +75,8 @@ class Installer:
                 record.cause, record.suggestion = classified
         return record
 
-    def _run_install(self, index, total, name, pkg):
-        operation = lambda: self.backend.install(pkg)
+    def _run_install(self, index, total, name, pkg, verify_cmd=None):
+        operation = lambda: self._install_and_verify(pkg, verify_cmd)
         if self.verbose:
             self.console.print(f"[{index}/{total}] installing {name} ({pkg})")
             result = operation()
@@ -79,6 +87,30 @@ class Installer:
             self.console.print(f"  -> {result.status}")
             return result
         return self.progress.run(index, total, "install", name, operation)
+
+    def _install_and_verify(self, pkg, verify_cmd):
+        """Install pkg, then confirm it actually runs when a verify_cmd is configured."""
+        result = self.backend.install(pkg)
+        # Only a fresh install is checked; already-present, upgraded, and dry-run states are left as-is.
+        if verify_cmd and result.status == INSTALLED and not self.backend.dry_run:
+            if not self._verify(verify_cmd):
+                result.status = INSTALLED_UNVERIFIED
+        return result
+
+    def _verify(self, verify_cmd):
+        """Run a verify_cmd defensively; True only on a clean exit-zero response. Never raises."""
+        try:
+            args = shlex.split(verify_cmd)
+        except ValueError:
+            return False
+        if not args:
+            return False
+        try:
+            proc = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, timeout=_VERIFY_TIMEOUT, check=False)
+            return proc.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
 
     def _echo_unavailable(self, index, total, name):
         self.console.print(f"[{index}/{total}] {name} skipped (not available on this platform)")

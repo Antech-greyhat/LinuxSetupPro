@@ -8,18 +8,21 @@ primary:
     packages:
       - name: git
         description: Distributed version control system.
+        verify_cmd: git --version
         termux: git
         apt: git
         dnf: git
         pacman: git
       - name: curl
         description: Transfers data from or to a server over many protocols.
+        verify_cmd: curl --version
         termux: curl
         apt: curl
         dnf: curl
         pacman: curl
       - name: wget
         description: Non-interactive network downloader.
+        verify_cmd: wget --version
         termux: wget
         apt: wget
         dnf: wget
@@ -82,12 +85,14 @@ primary:
     packages:
       - name: python
         description: Python interpreter and standard library.
+        verify_cmd: python3 --version
         termux: python
         apt: python3
         dnf: python3
         pacman: python
       - name: nodejs
         description: JavaScript runtime built on V8.
+        verify_cmd: node --version
         termux: nodejs
         apt: nodejs
         dnf: nodejs
@@ -145,6 +150,7 @@ primary:
         pacman: openssh
       - name: nmap
         description: Network exploration and port scanner.
+        verify_cmd: nmap --version
         termux: nmap
         apt: nmap
         dnf: nmap

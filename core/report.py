@@ -6,6 +6,7 @@ from datetime import datetime
 from core.packageManager import (
     ALREADY_INSTALLED,
     INSTALLED,
+    INSTALLED_UNVERIFIED,
     UPGRADED,
     SKIPPED,
     FAILED,
@@ -22,22 +23,24 @@ _FILENAMES = {
 _STATUS_LABEL = {
     ALREADY_INSTALLED: "Already Installed",
     INSTALLED: "Installed",
+    INSTALLED_UNVERIFIED: "Installed (Unverified)",
     UPGRADED: "Upgraded",
     SKIPPED: "Skipped",
     FAILED: "Failed",
 }
 
 # Order and wording of the per-status counts on the summary line.
-_SUMMARY_ORDER = [INSTALLED, ALREADY_INSTALLED, UPGRADED, SKIPPED, FAILED]
+_SUMMARY_ORDER = [INSTALLED, INSTALLED_UNVERIFIED, ALREADY_INSTALLED, UPGRADED, SKIPPED, FAILED]
 _SUMMARY_LABEL = {
     INSTALLED: "installed",
+    INSTALLED_UNVERIFIED: "installed (unverified)",
     ALREADY_INSTALLED: "already present",
     UPGRADED: "upgraded",
     SKIPPED: "skipped",
     FAILED: "failed",
 }
 
-_INSTALLED_STATES = (INSTALLED, ALREADY_INSTALLED, UPGRADED)
+_INSTALLED_STATES = (INSTALLED, INSTALLED_UNVERIFIED, ALREADY_INSTALLED, UPGRADED)
 
 _INDENT = "  "
 _GAP = "  "

@@ -11,6 +11,8 @@ INSTALLED = "installed"
 UPGRADED = "upgraded"
 SKIPPED = "skipped"
 FAILED = "failed"
+# Assigned by the installer (never by a backend) when a post-install verify_cmd does not confirm the tool.
+INSTALLED_UNVERIFIED = "installed (unverified)"
 
 
 class OperationResult:
