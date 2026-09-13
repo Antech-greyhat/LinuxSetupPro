@@ -28,7 +28,7 @@ LinuxSetupPro is a cross-platform setup and hardening tool for Termux, Debian/Ub
 | [Supported Platforms](#supported-platforms) | Detection and backend mapping |
 | [FAQ](#faq) | Common questions and answers |
 | [Changelog](#changelog) | Version history and what changed in each release |
-| [Contributing](#contributing) | How to add packages, error patterns, and new distros |
+| [Contributing](#contributing) | First-time walkthrough, plus how to add packages, error patterns, and new distros |
 | [License](#license) | MIT license |
 | [Developer](#developer) | Author and social links |
 
@@ -279,7 +279,7 @@ Edit `config/packages.yaml` and add an entry with its per-backend package names.
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add packages, error patterns, and new distributions.
+Contributions are welcome, and first-timers especially. [CONTRIBUTING.md](CONTRIBUTING.md) opens with a step-by-step "Your First Contribution" walkthrough — fork, clone, branch, commit, push, and open a pull request — then covers how to add packages, error patterns, and support for new distributions.
 
 ## License
 
