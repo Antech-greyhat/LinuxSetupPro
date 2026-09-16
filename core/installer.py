@@ -15,6 +15,7 @@ from core.packageManager import (
 )
 from core.progress import ProgressRenderer
 from core.report import PackageRecord
+from core import state
 
 _CATALOG = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "packages.yaml")
 
@@ -46,7 +47,11 @@ class Installer:
         records = []
         for offset, entry in enumerate(entries):
             index = start_index + offset
-            records.append(self._install_one(entry, index, total))
+            record = self._install_one(entry, index, total)
+            # Only packages this run actually installed become uninstall candidates.
+            if record.status in (INSTALLED, INSTALLED_UNVERIFIED):
+                state.record_installed(self.backend.key, record)
+            records.append(record)
         return records
 
     def _install_one(self, entry, index, total):

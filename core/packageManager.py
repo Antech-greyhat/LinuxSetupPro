@@ -13,6 +13,10 @@ SKIPPED = "skipped"
 FAILED = "failed"
 # Assigned by the installer (never by a backend) when a post-install verify_cmd does not confirm the tool.
 INSTALLED_UNVERIFIED = "installed (unverified)"
+# Uninstall outcomes, assigned by the uninstall flow from a backend remove() result.
+REMOVED = "removed"
+FAILED_REMOVE = "failed to remove"
+NOT_FOUND = "not found"
 
 
 class OperationResult:

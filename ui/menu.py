@@ -14,6 +14,9 @@ from rich.text import Text
 from ui import theme
 
 _SELECT_ALL = "__select_all__"
+# Sentinels distinguishing a whole-category toggle from an individual package in the uninstall menu.
+_UNINSTALL_CATEGORY = "__cat__::"
+_UNINSTALL_PACKAGE = "__pkg__::"
 
 # Wrap option hints in code so a narrow terminal (Termux portrait, ~50 cols) never truncates them.
 _HINT_WRAP = 44
@@ -33,6 +36,11 @@ _CHECKBOX_STYLE = questionary.Style([
 
 def _interactive():
     return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def is_interactive():
+    """True when prompts can actually be shown; callers skip interactive-only flows otherwise."""
+    return _interactive()
 
 
 def render_panel_menu(console, title, options, indent=0):
@@ -176,13 +184,54 @@ def secondary_menu(entries):
     return selected
 
 
+def _uninstall_package_value(candidate):
+    return _UNINSTALL_PACKAGE + candidate["category"] + "::" + candidate["name"]
+
+
+def uninstall_menu(candidates):
+    """Checkbox over tool-installed packages grouped by category, each with an [All] toggle.
+
+    candidates is a list of manifest dicts (name, category, description, ...). Selecting a
+    category toggle removes everything tracked under it; individual packages remove precisely.
+    Returns the chosen subset of candidate dicts, deduped and in the order given.
+    """
+    if not _interactive():
+        return []
+    by_category = {}
+    for candidate in candidates:
+        by_category.setdefault(candidate["category"], []).append(candidate)
+
+    choices = []
+    for category, items in by_category.items():
+        choices.append(Choice(title=f"[All] {category}", value=_UNINSTALL_CATEGORY + category))
+        for candidate in items:
+            marker = f" {theme.MARKER_LOCKED}" if candidate.get("locked") else ""
+            title = f"  {candidate['name']}{marker} - {candidate.get('description', '')}"
+            choices.append(Choice(title=title, value=_uninstall_package_value(candidate)))
+
+    selected = questionary.checkbox(
+        "Select packages to uninstall (space to toggle, enter to confirm):",
+        choices=choices, style=_CHECKBOX_STYLE,
+    ).ask()
+    selected = set(selected or [])
+
+    chosen = []
+    for candidate in candidates:
+        category_picked = (_UNINSTALL_CATEGORY + candidate["category"]) in selected
+        package_picked = _uninstall_package_value(candidate) in selected
+        if category_picked or package_picked:
+            chosen.append(candidate)
+    return chosen
+
+
 # Main menu options: (key, label, hint). Hints wrap in the panel, never overflow.
 _MAIN_OPTIONS = [
     ("1", "Run Primary Setup", "Basic / required — install this first"),
     ("2", "Run Secondary Setup", "Advanced / security tools — requires Primary"),
     ("3", "Generate Terminal Banner", "Installs figlet / lolcat if needed"),
     ("4", "View Last Report", ""),
-    ("5", "Exit", ""),
+    ("5", "Uninstall Packages", "Remove tools this installer added"),
+    ("6", "Exit", ""),
 ]
 
 _REPORT_OPTIONS = [
@@ -199,7 +248,7 @@ def main_menu(console):
         return None
     console.print()
     render_panel_menu(console, "LinuxSetupPro - Main Menu", _MAIN_OPTIONS)
-    return _read_choice(console, "  > ", {"1", "2", "3", "4", "5"})
+    return _read_choice(console, "  > ", {"1", "2", "3", "4", "5", "6"})
 
 
 def report_menu(console):

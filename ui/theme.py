@@ -7,6 +7,9 @@ from core.packageManager import (
     UPGRADED,
     SKIPPED,
     FAILED,
+    REMOVED,
+    FAILED_REMOVE,
+    NOT_FOUND,
 )
 
 # rich style strings keyed by status.
@@ -17,6 +20,9 @@ STATUS_COLORS = {
     UPGRADED: "cyan",
     SKIPPED: "yellow",
     FAILED: "red",
+    REMOVED: "green",
+    FAILED_REMOVE: "red",
+    NOT_FOUND: "yellow",
 }
 
 # Plain-text markers used where color alone is not enough.

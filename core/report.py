@@ -10,6 +10,9 @@ from core.packageManager import (
     UPGRADED,
     SKIPPED,
     FAILED,
+    REMOVED,
+    FAILED_REMOVE,
+    NOT_FOUND,
 )
 
 _REPORT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
@@ -17,6 +20,14 @@ _REPORT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports"
 _FILENAMES = {
     "primary": "primary_installation.txt",
     "secondary": "secondary_installation.txt",
+    "uninstall": "uninstall.txt",
+}
+
+# Banner title per report kind; keeps the established install wording untouched.
+_REPORT_TITLES = {
+    "primary": "PRIMARY INSTALLATION REPORT",
+    "secondary": "SECONDARY INSTALLATION REPORT",
+    "uninstall": "UNINSTALL REPORT",
 }
 
 # Title-cased labels used in the Status column.
@@ -27,10 +38,14 @@ _STATUS_LABEL = {
     UPGRADED: "Upgraded",
     SKIPPED: "Skipped",
     FAILED: "Failed",
+    REMOVED: "Removed",
+    FAILED_REMOVE: "Failed to Remove",
+    NOT_FOUND: "Not Found",
 }
 
 # Order and wording of the per-status counts on the summary line.
-_SUMMARY_ORDER = [INSTALLED, INSTALLED_UNVERIFIED, ALREADY_INSTALLED, UPGRADED, SKIPPED, FAILED]
+_SUMMARY_ORDER = [INSTALLED, INSTALLED_UNVERIFIED, ALREADY_INSTALLED, UPGRADED, SKIPPED, FAILED,
+                  REMOVED, FAILED_REMOVE, NOT_FOUND]
 _SUMMARY_LABEL = {
     INSTALLED: "installed",
     INSTALLED_UNVERIFIED: "installed (unverified)",
@@ -38,7 +53,13 @@ _SUMMARY_LABEL = {
     UPGRADED: "upgraded",
     SKIPPED: "skipped",
     FAILED: "failed",
+    REMOVED: "removed",
+    FAILED_REMOVE: "failed to remove",
+    NOT_FOUND: "not found",
 }
+
+# Statuses whose removal reason and suggestion are worth spelling out under the row.
+_FAILURE_STATES = (FAILED, FAILED_REMOVE)
 
 _INSTALLED_STATES = (INSTALLED, INSTALLED_UNVERIFIED, ALREADY_INSTALLED, UPGRADED)
 
@@ -109,7 +130,7 @@ class Report:
         sub_indent = " " * (len(_INDENT) + pkg_w + len(_GAP))
 
         lines = ["=" * _WIDTH,
-                 f" {self.kind.upper()} INSTALLATION REPORT",
+                 f" {_REPORT_TITLES.get(self.kind, self.kind.upper() + ' REPORT')}",
                  f" Run: {_timestamp()}",
                  "=" * _WIDTH,
                  ""]
@@ -140,7 +161,7 @@ class Report:
         rows = [_INDENT + record.name.ljust(pkg_w) + _GAP
                 + _status_label(record.status).ljust(status_w) + _GAP + record.description]
 
-        if record.status == FAILED:
+        if record.status in _FAILURE_STATES:
             reason, suggestion = self._failure_detail(record)
             rows.append(sub_indent + f"Reason: {reason}")
             rows.append(sub_indent + f"Suggestion: {suggestion}")
@@ -174,7 +195,7 @@ def report_path(kind):
 def read_reports():
     """Return the combined text of the saved report files, or None if none exist."""
     chunks = []
-    for kind in ("primary", "secondary"):
+    for kind in ("primary", "secondary", "uninstall"):
         path = os.path.join(_REPORT_DIR, _FILENAMES[kind])
         if os.path.isfile(path):
             with open(path, "r", encoding="utf-8") as fh:
