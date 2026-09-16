@@ -7,13 +7,23 @@ import shutil
 import subprocess
 import sys
 import time
+from collections import namedtuple
 
 from rich.console import Console
 
 from core import detector, installer, report, shellConfig, state
 from core.bannerGenerator import BannerGenerator, FONTS, COLOR_SCHEMES, default_settings
 from core.errorClassifier import ErrorClassifier
-from core.packageManager import get_backend, OperationResult, INSTALLED, FAILED, SKIPPED
+from core.packageManager import (
+    get_backend,
+    OperationResult,
+    INSTALLED,
+    FAILED,
+    SKIPPED,
+    REMOVED,
+    FAILED_REMOVE,
+    NOT_FOUND,
+)
 from core.report import PackageRecord, Report
 from ui import banner, menu
 from ui import theme
@@ -38,6 +48,8 @@ def build_parser():
                         help="show what would change without executing anything")
     parser.add_argument("--only", choices=["primary", "secondary"],
                         help="run only the primary categories or only the secondary menu")
+    parser.add_argument("--uninstall", action="store_true",
+                        help="remove packages this tool installed, then exit (skips the menu)")
     parser.add_argument("--set-editor", action="store_true",
                         help="reopen the editor picker, update EDITOR, then exit")
     parser.add_argument("--report", action="store_true",
@@ -71,31 +83,83 @@ def resolve_platform(console):
     return platform_info
 
 
-def run_primary(inst, catalog, plat, console, dry_run, verbose):
-    records = []
-    started = time.monotonic()
-    for block in catalog.get("primary", []):
-        category = block.get("category", "")
-        entries = []
-        for entry in block.get("packages", []):
-            entry = dict(entry)
-            entry["_category"] = category
-            entries.append(entry)
-        if not entries:
-            continue
-        console.print()
-        console.print(category, style=theme.HEADING)
-        records.extend(inst.install_sequence(entries))
+# One package to install, carrying the coordinates its progress line is numbered by.
+_Step = namedtuple("_Step", "entry category index total")
 
+
+def _primary_queue(catalog):
+    """Ordered list of primary entries, each tagged with its category."""
+    return [entry for _, entry in installer.flatten_primary(catalog)]
+
+
+def _steps_from_queue(queue, per_category):
+    """Turn an install queue into numbered steps.
+
+    per_category numbers each package within its category (Primary's convention); otherwise
+    packages are numbered across the whole queue (Secondary's convention). Both are rebuilt the
+    same way on resume, so the numbering a run shows survives an interruption.
+    """
+    steps = []
+    if per_category:
+        index = 0
+        while index < len(queue):
+            category = queue[index].get("_category", "")
+            run = index
+            while run < len(queue) and queue[run].get("_category", "") == category:
+                run += 1
+            size = run - index
+            for offset in range(size):
+                steps.append(_Step(queue[index + offset], category, offset + 1, size))
+            index = run
+    else:
+        total = len(queue)
+        for i, entry in enumerate(queue):
+            steps.append(_Step(entry, entry.get("_category", ""), i + 1, total))
+    return steps
+
+
+def _install_steps(inst, run_type, queue, steps, console, start_pos=0, show_headings=True):
+    """Install steps[start_pos:], recording progress before each package so a kill can resume.
+
+    A category heading prints as the category changes when show_headings is set. The marker is
+    left untouched in dry-run, which is not a resumable operation.
+    """
+    track = not inst.backend.dry_run
+    records = []
+    current_category = None
+    for position in range(start_pos, len(steps)):
+        step = steps[position]
+        if show_headings and step.category != current_category:
+            current_category = step.category
+            console.print()
+            console.print(step.category, style=theme.HEADING)
+        if track:
+            # Written before the package runs, so a package killed mid-install is retried on resume.
+            state.write_progress(run_type, queue, position, step.category)
+        records.extend(inst.install_sequence([step.entry], start_index=step.index, total=step.total))
+    if track and steps:
+        state.write_progress(run_type, queue, len(steps), steps[-1].category)
+    return records
+
+
+def _finalize_primary(inst, catalog, plat, console, dry_run, records, started):
+    """Run the interactive customization tail, write the report, and clear the run marker."""
     custom_records, notes = customization_flow(inst, catalog, plat, console, dry_run)
     records.extend(custom_records)
-
     elapsed = time.monotonic() - started
-    rpt = Report("primary", plat.pretty_name, plat.backend_key)
-    rpt.write(records, elapsed, notes)
+    Report("primary", plat.pretty_name, plat.backend_key).write(records, elapsed, notes)
     if not dry_run:
         state.mark_primary_completed()
+    state.clear_run()
     return records
+
+
+def run_primary(inst, catalog, plat, console, dry_run, verbose):
+    queue = _primary_queue(catalog)
+    steps = _steps_from_queue(queue, per_category=True)
+    started = time.monotonic()
+    records = _install_steps(inst, "primary", queue, steps, console, show_headings=True)
+    return _finalize_primary(inst, catalog, plat, console, dry_run, records, started)
 
 
 def customization_flow(inst, catalog, plat, console, dry_run):
@@ -205,6 +269,14 @@ def _switch_shell_to_zsh(console):
         console.print(f"Could not switch shell: {exc}", style=theme.WARN)
 
 
+def _finalize_secondary(plat, records, started):
+    """Write the secondary report and clear the run marker."""
+    elapsed = time.monotonic() - started
+    Report("secondary", plat.pretty_name, plat.backend_key).write(records, elapsed)
+    state.clear_run()
+    return records
+
+
 def run_secondary(inst, catalog, plat, console):
     console.print()
     menu.notice(console,
@@ -212,12 +284,7 @@ def run_secondary(inst, catalog, plat, console):
                 "and may not fully function on stock or unrooted devices.",
                 title="[ HEADS UP ]", border_style=theme.WARN)
 
-    entries = []
-    for block in catalog.get("secondary", []):
-        for entry in block.get("packages", []):
-            e = dict(entry)
-            e["_category"] = block.get("category", "")
-            entries.append(e)
+    entries = [entry for _, entry in installer.flatten_secondary(catalog)]
 
     selected = menu.secondary_menu(entries)
     if not selected:
@@ -232,13 +299,109 @@ def run_secondary(inst, catalog, plat, console):
         console.print("Cancelled.", style=theme.DIM)
         return []
 
+    steps = _steps_from_queue(chosen, per_category=False)
     started = time.monotonic()
-    records = inst.install_sequence(chosen)
+    records = _install_steps(inst, "secondary", chosen, steps, console, show_headings=False)
+    return _finalize_secondary(plat, records, started)
+
+
+def resume_run(inst, catalog, plat, console, dry_run, marker):
+    """Continue an interrupted run from the position its marker recorded, then finalize as usual."""
+    run_type = marker.get("run")
+    queue = marker.get("queue") or []
+    position = max(0, int(marker.get("position", 0)))
+    started = time.monotonic()
+    if run_type == "primary":
+        steps = _steps_from_queue(queue, per_category=True)
+        records = _install_steps(inst, "primary", queue, steps, console,
+                                 start_pos=position, show_headings=True)
+        _finalize_primary(inst, catalog, plat, console, dry_run, records, started)
+    elif run_type == "secondary":
+        steps = _steps_from_queue(queue, per_category=False)
+        records = _install_steps(inst, "secondary", queue, steps, console,
+                                 start_pos=position, show_headings=False)
+        _finalize_secondary(plat, records, started)
+    else:
+        # An unrecognized run type is not something we can safely replay; drop the marker.
+        state.clear_run()
+
+
+def _maybe_resume(inst, catalog, plat, console, dry_run):
+    """Offer to resume an interrupted run before the main menu; declining discards the marker."""
+    marker = state.read_run()
+    if not marker or not menu.is_interactive():
+        return
+    category = marker.get("category") or "a previous run"
+    if menu.confirm(console, f"Previous run was interrupted during {category}. Resume?", default=False):
+        resume_run(inst, catalog, plat, console, dry_run, marker)
+    else:
+        state.clear_run()
+
+
+def run_uninstall(inst, plat, console):
+    """Remove tool-installed packages the user selects, then report the outcome per package."""
+    candidates = state.list_installed(plat.backend_key)
+    if not candidates:
+        console.print("No tool-installed packages to uninstall.", style=theme.WARN)
+        return []
+
+    chosen = menu.uninstall_menu(candidates)
+    if not chosen:
+        console.print("No packages selected.", style=theme.DIM)
+        return []
+
+    console.print()
+    menu.notice(console, "You are about to remove: " + ", ".join(c["name"] for c in chosen),
+                title="[ CONFIRM ]", border_style=theme.ACCENT)
+    if not menu.confirm(console, "Proceed with removal?", default=False):
+        console.print("Cancelled.", style=theme.DIM)
+        return []
+
+    started = time.monotonic()
+    records = []
+    total = len(chosen)
+    for index, candidate in enumerate(chosen, start=1):
+        record = _remove_one(inst, candidate, index, total)
+        # A package that is gone (removed, or never present) is no longer tool-installed.
+        if record.status in (REMOVED, NOT_FOUND):
+            state.forget_installed(plat.backend_key, candidate["name"])
+        records.append(record)
     elapsed = time.monotonic() - started
 
-    rpt = Report("secondary", plat.pretty_name, plat.backend_key)
-    rpt.write(records, elapsed)
+    Report("uninstall", plat.pretty_name, plat.backend_key).write(records, elapsed)
     return records
+
+
+def _remove_one(inst, candidate, index, total):
+    """Remove one package through its backend, mapping the backend result to an uninstall status."""
+    backend = inst.backend
+    package = candidate["package"]
+
+    def operation():
+        # Nothing to do if the package is already gone; report it plainly, not as a failure.
+        if not backend.dry_run and not backend.is_installed(package):
+            return OperationResult(package, NOT_FOUND)
+        result = backend.remove(package)
+        if result.status == INSTALLED:      # backends signal a successful removal with INSTALLED
+            result.status = REMOVED
+        elif result.status == FAILED:
+            result.status = FAILED_REMOVE
+        return result
+
+    if inst.verbose:
+        inst.console.print(f"[{index}/{total}] removing {candidate['name']} ({package})")
+        result = operation()
+        if result.stdout:
+            inst.console.print(result.stdout)
+        if result.stderr:
+            inst.console.print(result.stderr)
+        inst.console.print(f"  -> {result.status}")
+    else:
+        result = inst.progress.run(index, total, "remove", candidate["name"], operation)
+
+    return PackageRecord(candidate.get("category", ""), candidate["name"],
+                         candidate.get("description", ""), result.status,
+                         bool(candidate.get("locked")), result)
 
 
 def banner_generation_flow(backend, plat, console, dry_run):
@@ -326,7 +489,9 @@ def run_menu(inst, catalog, plat, console, backend, dry_run):
             banner_generation_flow(backend, plat, console, dry_run)
         elif choice == "4":
             report_submenu(console)
-        else:  # "5" or a cancelled prompt
+        elif choice == "5":
+            run_uninstall(inst, plat, console)
+        else:  # "6" or a cancelled prompt
             if not end_shown:
                 banner.show_end(VERSION, plat, console)
             return 0
@@ -466,6 +631,12 @@ def main(argv=None):
     classifier = ErrorClassifier(plat.backend_key)
     inst = installer.Installer(backend, classifier, console, verbose=args.verbose)
 
+    if args.uninstall:
+        run_uninstall(inst, plat, console)
+        if not args.no_banner:
+            banner.show_end(VERSION, plat, console)
+        return 0
+
     if args.only == "secondary":
         run_secondary(inst, catalog, plat, console)
         finish_run(backend, plat, console, args.dry_run, args.no_banner)
@@ -485,7 +656,8 @@ def main(argv=None):
         finish_run(backend, plat, console, args.dry_run, args.no_banner)
         return 0
 
-    # Bare invocation: the interactive main menu.
+    # Bare invocation: offer to resume any interrupted run, then show the interactive main menu.
+    _maybe_resume(inst, catalog, plat, console, args.dry_run)
     return run_menu(inst, catalog, plat, console, backend, args.dry_run)
 
 
