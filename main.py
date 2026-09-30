@@ -598,13 +598,16 @@ def action_check_update(console):
 
 
 def action_doctor(backend, plat, console):
-    """Audit tracked tool-installed packages, write the health report, and print a short summary."""
+    """Audit tracked packages and the C toolchain, write the health report, and print a short summary."""
     result = doctor.run_health_check(backend, plat.backend_key)
-    path = report.write_health_report(result.checked, result.discrepancies)
-    summary = report.health_summary_line(len(result.checked), len(result.discrepancies))
+    path = report.write_health_report(result.checked, result.discrepancies, result.toolchain)
+    lines = [report.health_summary_line(len(result.checked), len(result.discrepancies))]
+    toolchain_failed = result.toolchain is not None and not result.toolchain.ok
+    if result.toolchain is not None:
+        lines.append(report.toolchain_summary_line(result.toolchain))
     console.print()
-    menu.notice(console, summary, title="[ HEALTH CHECK ]",
-                border_style=theme.WARN if result.discrepancies else theme.ACCENT)
+    menu.notice(console, "\n".join(lines), title="[ HEALTH CHECK ]",
+                border_style=theme.WARN if (result.discrepancies or toolchain_failed) else theme.ACCENT)
     console.print(f"Full report: {os.path.relpath(path)}", style=theme.DIM)
 
 
