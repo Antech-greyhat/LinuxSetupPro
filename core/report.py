@@ -213,17 +213,24 @@ def health_summary_line(checked_count, discrepancy_count):
     return f"Checked {checked_count} tracked {pkg_word} — {tail}"
 
 
-def write_health_report(checked, discrepancies):
+def toolchain_summary_line(toolchain):
+    """The one-line C toolchain result shared by the report file and the terminal notice."""
+    outcome = "compiled and ran successfully" if toolchain.ok else "failed to compile or execute"
+    return f"C toolchain ({toolchain.compiler}) — {outcome}"
+
+
+def write_health_report(checked, discrepancies, toolchain=None):
     """Append a dated health-check block to reports/health_check.txt. Returns the file path.
 
-    checked is a sequence of doctor.PackageStatus; discrepancies is the subset found missing.
-    Shares the dated-section format and column widths used by the installation reports.
+    checked is a sequence of doctor.PackageStatus; discrepancies is the subset found missing;
+    toolchain is an optional doctor.ToolchainResult. Shares the dated-section format and column
+    widths used by the installation reports.
     """
     path = os.path.join(_REPORT_DIR, _FILENAMES["health"])
-    return _append_block(path, _render_health_block(list(checked), list(discrepancies)))
+    return _append_block(path, _render_health_block(list(checked), list(discrepancies), toolchain))
 
 
-def _render_health_block(checked, discrepancies):
+def _render_health_block(checked, discrepancies, toolchain=None):
     name_w = max([len("Package")] + [len(s.name) for s in checked])
     status_w = max(len("Status"), len(_HEALTH_MISSING))
 
@@ -251,6 +258,17 @@ def _render_health_block(checked, discrepancies):
         for status in discrepancies:
             lines.append(_INDENT + status.name.ljust(name_w) + _GAP
                          + "tracked as installed but not found on the system")
+        lines.append("")
+
+    if toolchain is not None:
+        lines.append("C TOOLCHAIN")
+        lines.append("-" * _WIDTH)
+        lines.append(_INDENT + toolchain_summary_line(toolchain))
+        if not toolchain.ok:
+            detail = (toolchain.detail or "").strip().splitlines() or ["no error output was captured"]
+            lines.append(_INDENT * 2 + "Reason: " + detail[0])
+            for extra in detail[1:]:
+                lines.append(_INDENT * 2 + "        " + extra)
         lines.append("")
 
     lines.append("-" * _WIDTH)
