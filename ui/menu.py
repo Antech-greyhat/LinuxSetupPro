@@ -233,7 +233,9 @@ _MAIN_OPTIONS = [
     ("5", "Uninstall Packages", "Remove tools this installer added"),
     ("6", "Check for Updates", "Look for a newer release on GitHub"),
     ("7", "Run Health Check", "Verify tracked packages are still installed"),
-    ("8", "Exit", ""),
+    ("8", "Export Profile", "Save the last run's selections to a file"),
+    ("9", "Import Profile", "Install exactly what a saved profile specifies"),
+    ("10", "Exit", ""),
 ]
 
 _REPORT_OPTIONS = [
@@ -250,7 +252,7 @@ def main_menu(console):
         return None
     console.print()
     render_panel_menu(console, "LinuxSetupPro - Main Menu", _MAIN_OPTIONS)
-    return _read_choice(console, "  > ", {"1", "2", "3", "4", "5", "6", "7", "8"})
+    return _read_choice(console, "  > ", {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"})
 
 
 def report_menu(console):

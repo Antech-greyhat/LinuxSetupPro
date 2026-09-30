@@ -214,15 +214,24 @@ git checkout v2.0.0
 | `--dry-run` | Show what would install, upgrade, or remove without executing anything. |
 | `--only primary` | Run the primary categories only and skip the secondary menu. |
 | `--only secondary` | Jump straight to the secondary tools menu. |
+| `--skip <categories>` | Comma-separated categories to exclude from the run (Primary and/or Secondary). |
+| `--categories <categories>` | Comma-separated categories to run exclusively; mutually exclusive with `--skip`. |
+| `--export-profile <file>` | Write the current tracked selections to a profile file and exit. |
+| `--import-profile <file>` | Install exactly the selections a profile file specifies, with no prompts, then exit. |
+| `--uninstall` | Remove the packages this tool installed, then exit. |
 | `--set-editor` | Reopen the editor picker, update `EDITOR`, then exit. |
 | `--report` | Print the saved installation reports from `reports/` and exit. |
+| `--check-update` | Check GitHub for a newer release, print the result, and exit. |
+| `--doctor` | Health-check tracked packages against the system, then exit. |
 | `--version` | Print the tool version and exit. |
 | `--no-banner` | Suppress the startup and end-of-run banners. |
 | `--verbose` | Show raw subprocess output instead of the progress widgets. |
 | `--remove-banner` | Remove the persistent shell banner block and exit. |
 | `--public-ip` | Show your public IP in the startup session block. Makes one outbound request; the default shows the local IP only. |
 
-Running `python3 main.py` with no flags opens the interactive main menu, where you choose Primary Setup, Secondary Setup, banner generation, or the report viewer. Any flag in the table above runs its action directly and bypasses the menu, so scripted and non-interactive use is unchanged. Secondary Setup from the menu requires Primary Setup to have completed at least once and offers to run it first if needed; `--only secondary` skips that check.
+Running `python3 main.py` with no flags opens the interactive main menu, where you choose Primary Setup, Secondary Setup, banner generation, the report viewer, uninstall, update and health checks, or profile export/import. Any flag in the table above runs its action directly and bypasses the menu, so scripted and non-interactive use is unchanged. Secondary Setup from the menu requires Primary Setup to have completed at least once and offers to run it first if needed; `--only secondary` skips that check.
+
+Category names for `--skip` and `--categories` are matched loosely, so a leading word is enough — `fun` matches `Fun/Terminal Flair`, `network-analysis` matches `Network Analysis`. An unknown name fails immediately and lists the valid ones. A profile captures only your install selections — which primary categories, secondary tools, editors, and shell theme — never the cosmetic banner. Export one after a run and import it later, or on another device, to reproduce exactly that set with no selection prompts.
 
 ## Supported Platforms
 
