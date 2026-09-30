@@ -12,6 +12,8 @@ _INSTALLED_MANIFEST = os.path.join(_STATE_DIR, "installed_packages.json")
 _PROGRESS_MARKER = os.path.join(_STATE_DIR, "in_progress.json")
 # Last update-check finding, so startup can surface a newer version without a network call.
 _UPDATE_CACHE = os.path.join(_STATE_DIR, "update_check.json")
+# The selections the most recent run(s) made, so a profile can be exported later without re-running.
+_SELECTIONS_FILE = os.path.join(_STATE_DIR, "last_selections.json")
 
 
 def mark_primary_completed():
@@ -166,3 +168,30 @@ def clear_update_cache():
         os.remove(_UPDATE_CACHE)
     except OSError:
         pass
+
+
+# --- Run-selection tracking (drives profile export) ---
+
+def merge_selections(update):
+    """Merge one run's selections into the saved selection state. Best-effort.
+
+    A primary and a secondary run each write their own keys, so running both leaves a complete
+    record; a later run of either kind overwrites just its own part. A corrupt file starts empty.
+    """
+    data = read_selections() or {}
+    data.update(update)
+    data["updated_at"] = _timestamp()
+    try:
+        _atomic_write_json(_SELECTIONS_FILE, data)
+    except (OSError, TypeError):
+        pass
+
+
+def read_selections():
+    """Return the saved run selections as a dict, or None if absent or unreadable."""
+    try:
+        with open(_SELECTIONS_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
