@@ -75,7 +75,7 @@ def _from_mapping(catalog, mapping):
     if not isinstance(mapping, dict):
         raise ProfileError("profile must be a mapping of keys to values")
     version = mapping.get("profile_version", PROFILE_VERSION)
-    if not isinstance(version, int) or version > PROFILE_VERSION:
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1 or version > PROFILE_VERSION:
         raise ProfileError(f"unsupported profile_version {version!r}; "
                            f"this build understands version {PROFILE_VERSION}")
 
@@ -108,12 +108,19 @@ def _resolve_customization(catalog, block):
     if not isinstance(editors, list):
         raise ProfileError("customization.editors must be a list")
     for name in editors:
+        if not isinstance(name, str):
+            raise ProfileError("customization.editors entries must be strings")
         if name not in valid_editors:
             raise ProfileError(f"unknown editor {name!r} in profile; not in the catalog")
     theme = block.get("shell_theme")
+    if theme is not None and not isinstance(theme, str):
+        raise ProfileError("customization.shell_theme must be a string or null")
     if theme is not None and theme not in _SHELL_THEMES:
         raise ProfileError(f"unknown shell_theme {theme!r}; expected one of {', '.join(_SHELL_THEMES)}")
-    return Customization([str(e) for e in editors], theme, bool(block.get("install_fish", False)))
+    install_fish = block.get("install_fish", False)
+    if not isinstance(install_fish, bool):
+        raise ProfileError("customization.install_fish must be true or false")
+    return Customization(list(editors), theme, install_fish)
 
 
 def _resolve_secondary(catalog, names):
@@ -122,6 +129,8 @@ def _resolve_secondary(catalog, names):
         raise ProfileError("secondary_selections must be a list")
     valid = {entry["name"] for _, entry in installer.flatten_secondary(catalog)}
     for name in names:
+        if not isinstance(name, str):
+            raise ProfileError("secondary_selections entries must be strings")
         if name not in valid:
             raise ProfileError(f"unknown package {name!r} in secondary_selections; not in the catalog")
-    return [str(name) for name in names]
+    return list(names)

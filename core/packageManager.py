@@ -142,6 +142,10 @@ class TermuxBackend(PackageManagerBackend):
 class AptBackend(PackageManagerBackend):
     key = "apt"
 
+    def __init__(self, dry_run=False):
+        super().__init__(dry_run=dry_run)
+        self._index_ready = False
+
     def is_installed(self, package):
         code, out, _, _ = _run(["dpkg-query", "-W", "-f=${Status}", package])
         return code == 0 and "install ok installed" in out
@@ -152,7 +156,13 @@ class AptBackend(PackageManagerBackend):
         cmd = self._sudo_prefix() + ["apt-get", "install", "-y", package]
         if self.dry_run:
             return self._dry(package, cmd)
-        env_code, _, env_err, _ = self._ensure_index()
+        if not self._index_ready:
+            update_code, update_out, update_err, update_dur = self._ensure_index()
+            if update_code != 0:
+                detail = update_err or update_out or f"apt-get update exited with code {update_code}"
+                return OperationResult(package, FAILED, cmd, update_out, detail,
+                                       update_code, update_dur)
+            self._index_ready = True
         code, out, err, dur = _run(cmd)
         status = INSTALLED if code == 0 else FAILED
         return OperationResult(package, status, cmd, out, err, code, dur)
