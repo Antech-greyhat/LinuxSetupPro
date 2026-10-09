@@ -42,6 +42,7 @@ LinuxSetupPro is a cross-platform setup and hardening tool for Termux, Debian/Ub
 - Per-run reports appended to plain-text files under `reports/`, readable in any editor.
 - Persistent hacker-style terminal banner generator with figlet fonts and color schemes.
 - `--dry-run` shows exactly what would change without executing anything.
+- A system-change preview lists resolved package names and package-manager commands before installs and removals. Interactive install, removal, and customization actions require confirmation; non-interactive CLI runs and profile imports print the preview and continue unattended.
 
 ## Screenshots
 

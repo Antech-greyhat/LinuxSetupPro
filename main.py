@@ -130,6 +130,45 @@ def _steps_from_queue(queue, per_category):
     return steps
 
 
+def _preview_changes(inst, entries, operation, extra_lines=None):
+    """Show resolved package names and package-manager commands without changing the system."""
+    backend = inst.backend
+    lines = []
+    needs_install = False
+    for entry in entries:
+        name = entry.get("name", "unknown")
+        package = entry.get(backend.key) if operation == "install" else entry.get("package")
+        if package is None:
+            lines.append(f"{name}: unavailable for {backend.key}")
+            continue
+        present = backend.is_installed(package)
+        if operation == "install" and present:
+            lines.append(f"{name} ({package}): already installed; no command needed")
+            continue
+        if operation == "remove" and not present and not backend.dry_run:
+            lines.append(f"{name} ({package}): already absent; no command needed")
+            continue
+        needs_install = needs_install or operation == "install"
+        command = shlex.join(backend.preview_command(operation, package))
+        lines.append(f"{name} ({package})\n  {command}")
+
+    if operation == "install" and backend.key == "apt" and needs_install and not backend.dry_run:
+        refresh = shlex.join(backend._sudo_prefix() + ["apt-get", "update"])
+        lines.insert(0, f"Package index refresh (once): {refresh}")
+    lines.extend(extra_lines or [])
+    if not lines:
+        lines.append("No package-manager changes are planned.")
+    menu.notice(inst.console, "\n".join(lines), title="[ SYSTEM CHANGE PREVIEW ]",
+                border_style=theme.ACCENT)
+
+
+def _confirm_changes(inst, entries, operation, prompt, extra_lines=None):
+    _preview_changes(inst, entries, operation, extra_lines=extra_lines)
+    if not menu.is_interactive():
+        return True
+    return menu.confirm(inst.console, prompt, default=False)
+
+
 def _install_steps(inst, run_type, queue, steps, console, start_pos=0, show_headings=True):
     """Install steps[start_pos:], recording progress before each package so a kill can resume.
 
@@ -194,6 +233,9 @@ def run_primary(inst, catalog, plat, console, dry_run, verbose, filt):
     allowed = filt.primary
     queue = [entry for entry in _primary_queue(catalog) if entry.get("_category") in allowed]
     steps = _steps_from_queue(queue, per_category=True)
+    if queue and not _confirm_changes(inst, queue, "install", "Proceed with Primary Setup?"):
+        console.print("Primary Setup cancelled; no packages were changed.", style=theme.DIM)
+        return []
     started = time.monotonic()
     records = _install_steps(inst, "primary", queue, steps, console, show_headings=True)
     ran = [name for name in installer.primary_category_names(catalog)
@@ -253,6 +295,22 @@ def apply_customization(inst, catalog, console, dry_run, selected, theme_choice,
     if want_fish and "fish" in shells:
         entries.append(_shell_entry("fish", shells["fish"]))
 
+    extra = []
+    if theme_choice == "oh-my-zsh":
+        url = "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
+        command = f'sh -c "$(curl -fsSL {url})" "" --unattended'
+        extra.append("oh-my-zsh: " + shlex.join(["bash", "-c", command])
+                     + " (RUNZSH=no CHSH=no)")
+    default_editor = _choose_default_editor(selected)
+    if default_editor:
+        extra.append(f"Shell config: set EDITOR and VISUAL to {default_editor}")
+    if entries or extra:
+        if not _confirm_changes(inst, entries, "install", "Proceed with customization?",
+                                extra_lines=extra):
+            console.print("Customization cancelled; no customization changes were made.",
+                          style=theme.DIM)
+            return [], [],
+
     records = inst.install_sequence(entries) if entries else []
 
     if theme_choice == "oh-my-zsh":
@@ -260,7 +318,6 @@ def apply_customization(inst, catalog, console, dry_run, selected, theme_choice,
         if interactive and not dry_run and menu.confirm(console, "Switch default shell to zsh?", default=False):
             _switch_shell_to_zsh(console)
 
-    default_editor = _choose_default_editor(selected)
     if default_editor and not dry_run:
         path = shellConfig.set_editor(default_editor, console=console)
         notes.append(f"Default EDITOR set to {default_editor} in {path}. "
@@ -355,9 +412,7 @@ def run_secondary(inst, catalog, plat, console, filt):
 
     chosen = [e for e in entries if e["name"] in selected]
     console.print()
-    menu.notice(console, "You are about to install: " + ", ".join(e["name"] for e in chosen),
-                title="[ CONFIRM ]", border_style=theme.ACCENT)
-    if not menu.confirm(console, "Proceed with installation?", default=False):
+    if not _confirm_changes(inst, chosen, "install", "Proceed with installation?"):
         console.print("Cancelled.", style=theme.DIM)
         return []
 
@@ -376,6 +431,9 @@ def resume_run(inst, catalog, plat, console, dry_run, marker):
     started = time.monotonic()
     if run_type == "primary":
         steps = _steps_from_queue(queue, per_category=True)
+        remaining = [step.entry for step in steps[position:]]
+        if remaining:
+            _preview_changes(inst, remaining, "install")
         records = _install_steps(inst, "primary", queue, steps, console,
                                  start_pos=position, show_headings=True)
         # The interrupted run's categories are whatever its saved queue held; customization always
@@ -384,6 +442,9 @@ def resume_run(inst, catalog, plat, console, dry_run, marker):
         _finalize_primary(inst, catalog, plat, console, dry_run, records, started, ran, True)
     elif run_type == "secondary":
         steps = _steps_from_queue(queue, per_category=False)
+        remaining = [step.entry for step in steps[position:]]
+        if remaining:
+            _preview_changes(inst, remaining, "install")
         records = _install_steps(inst, "secondary", queue, steps, console,
                                  start_pos=position, show_headings=False)
         state.merge_selections({"secondary_selections": [entry.get("name") for entry in queue]})
@@ -418,9 +479,7 @@ def run_uninstall(inst, plat, console):
         return []
 
     console.print()
-    menu.notice(console, "You are about to remove: " + ", ".join(c["name"] for c in chosen),
-                title="[ CONFIRM ]", border_style=theme.ACCENT)
-    if not menu.confirm(console, "Proceed with removal?", default=False):
+    if not _confirm_changes(inst, chosen, "remove", "Proceed with removal?"):
         console.print("Cancelled.", style=theme.DIM)
         return []
 
@@ -500,6 +559,8 @@ def _silent_primary(inst, catalog, plat, console, dry_run, profile):
     allowed = set(profile.primary_categories)
     queue = [entry for entry in _primary_queue(catalog) if entry.get("_category") in allowed]
     steps = _steps_from_queue(queue, per_category=True)
+    if queue:
+        _preview_changes(inst, queue, "install")
     started = time.monotonic()
     records = _install_steps(inst, "primary", queue, steps, console, show_headings=True)
     if profile.run_customization:
@@ -520,6 +581,7 @@ def _silent_secondary(inst, catalog, plat, console, profile):
     chosen = [by_name[name] for name in profile.secondary_selections if name in by_name]
     if not chosen:
         return []
+    _preview_changes(inst, chosen, "install")
     steps = _steps_from_queue(chosen, per_category=False)
     started = time.monotonic()
     records = _install_steps(inst, "secondary", chosen, steps, console, show_headings=False)

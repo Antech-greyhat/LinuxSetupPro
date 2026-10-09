@@ -97,6 +97,10 @@ class PackageManagerBackend:
     def remove(self, package):
         raise NotImplementedError
 
+    def preview_command(self, operation, package):
+        """Return the argv that install/remove would execute, without running it."""
+        raise NotImplementedError
+
     def _dry(self, package, command):
         return OperationResult(package, SKIPPED, command=command,
                                stdout="dry-run: not executed", exit_code=0)
@@ -111,6 +115,10 @@ class TermuxBackend(PackageManagerBackend):
     def is_installed(self, package):
         code, out, _, _ = _run(["dpkg-query", "-W", "-f=${Status}", package])
         return code == 0 and "install ok installed" in out
+
+    def preview_command(self, operation, package):
+        verb = "install" if operation == "install" else "uninstall"
+        return ["pkg", verb, "-y", package]
 
     def install(self, package):
         if self.is_installed(package):
@@ -149,6 +157,13 @@ class AptBackend(PackageManagerBackend):
     def is_installed(self, package):
         code, out, _, _ = _run(["dpkg-query", "-W", "-f=${Status}", package])
         return code == 0 and "install ok installed" in out
+
+    def preview_command(self, operation, package):
+        if operation == "install":
+            args = ["apt-get", "install", "-y", package]
+        else:
+            args = ["apt-get", "remove", "-y", package]
+        return self._sudo_prefix() + args
 
     def install(self, package):
         if self.is_installed(package):
@@ -195,6 +210,10 @@ class DnfBackend(PackageManagerBackend):
         code, _, _, _ = _run(["rpm", "-q", package])
         return code == 0
 
+    def preview_command(self, operation, package):
+        verb = "install" if operation == "install" else "remove"
+        return self._sudo_prefix() + ["dnf", verb, "-y", package]
+
     def install(self, package):
         if self.is_installed(package):
             return OperationResult(package, ALREADY_INSTALLED)
@@ -228,6 +247,13 @@ class PacmanBackend(PackageManagerBackend):
     def is_installed(self, package):
         code, _, _, _ = _run(["pacman", "-Q", package])
         return code == 0
+
+    def preview_command(self, operation, package):
+        if operation == "install":
+            args = ["pacman", "-S", "--noconfirm", "--needed", package]
+        else:
+            args = ["pacman", "-R", "--noconfirm", package]
+        return self._sudo_prefix() + args
 
     def install(self, package):
         if self.is_installed(package):
