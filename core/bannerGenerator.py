@@ -5,6 +5,7 @@ import shutil
 import subprocess
 
 from rich.console import Console
+from rich.text import Text
 
 from core import shellConfig
 from ui import theme
@@ -57,13 +58,18 @@ class BannerGenerator:
         command = self._command_with_fallback(text, font, scheme)
         code, out, err = self._shell(command)
         if code != 0:
-            self.console.print(f"Preview failed: {err.strip() or 'unknown error'}", style=theme.ERROR)
+            self.console.print(f"Preview failed: {err.strip() or 'unknown error'}", style=theme.ERROR,
+                               markup=False)
             return None
-        self.console.print(out, end="")
+        # figlet art is not rich markup, and lolcat/printf emit raw ANSI colors; decode them as such.
+        self.console.print(Text.from_ansi(out), end="", soft_wrap=True)
         return command
 
     def persist(self, command, shell=None):
-        path = shellConfig.insert_banner_block([command], shell=shell, console=self.console)
+        # Only print in interactive shells: output from a non-interactive one (scp, rsync, sftp,
+        # `ssh host cmd`) corrupts the protocol stream and breaks those tools.
+        body = ["case $- in", f"  *i*) {command} ;;", "esac"]
+        path = shellConfig.insert_banner_block(body, shell=shell, console=self.console)
         return path
 
     def _command_with_fallback(self, text, font, scheme):
@@ -77,7 +83,9 @@ class BannerGenerator:
 
     def _shell(self, command):
         try:
-            proc = subprocess.run(["bash", "-c", command], stdout=subprocess.PIPE,
+            # pipefail so a figlet failure (missing font) inside `figlet | lolcat` is not masked
+            # by lolcat's exit status, which would skip the standard-font fallback.
+            proc = subprocess.run(["bash", "-o", "pipefail", "-c", command], stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE, text=True, timeout=30, check=False)
             return proc.returncode, proc.stdout or "", proc.stderr or ""
         except (OSError, subprocess.SubprocessError) as exc:

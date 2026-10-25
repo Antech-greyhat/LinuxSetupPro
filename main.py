@@ -17,7 +17,10 @@ from core.errorClassifier import ErrorClassifier
 from core.packageManager import (
     get_backend,
     OperationResult,
+    ALREADY_INSTALLED,
     INSTALLED,
+    INSTALLED_UNVERIFIED,
+    UPGRADED,
     FAILED,
     SKIPPED,
     REMOVED,
@@ -152,7 +155,8 @@ def _preview_changes(inst, entries, operation, extra_lines=None):
         command = shlex.join(backend.preview_command(operation, package))
         lines.append(f"{name} ({package})\n  {command}")
 
-    if operation == "install" and backend.key == "apt" and needs_install and not backend.dry_run:
+    if (operation == "install" and backend.key == "apt" and needs_install and not backend.dry_run
+            and not backend._index_ready):
         refresh = shlex.join(backend._sudo_prefix() + ["apt-get", "update"])
         lines.insert(0, f"Package index refresh (once): {refresh}")
     lines.extend(extra_lines or [])
@@ -197,9 +201,10 @@ def _write_primary_report(plat, dry_run, records, notes, started):
     """Write the primary report and clear the run marker. Shared by the interactive and silent paths."""
     elapsed = time.monotonic() - started
     Report("primary", plat.pretty_name, plat.backend_key).write(records, elapsed, notes)
+    # A dry run never touches .state/: clearing here would discard a real interrupted run's marker.
     if not dry_run:
         state.mark_primary_completed()
-    state.clear_run()
+        state.clear_run()
     return records
 
 
@@ -225,17 +230,19 @@ def _finalize_primary(inst, catalog, plat, console, dry_run, records, started,
         records.extend(custom_records)
     else:
         notes, selection = [], None
-    _record_primary_selection(ran_categories, run_customization, selection)
+    if not dry_run:
+        _record_primary_selection(ran_categories, run_customization, selection)
     return _write_primary_report(plat, dry_run, records, notes, started)
 
 
 def run_primary(inst, catalog, plat, console, dry_run, verbose, filt):
+    """Run the selected primary categories. Returns the records, or None if the user cancelled."""
     allowed = filt.primary
     queue = [entry for entry in _primary_queue(catalog) if entry.get("_category") in allowed]
     steps = _steps_from_queue(queue, per_category=True)
     if queue and not _confirm_changes(inst, queue, "install", "Proceed with Primary Setup?"):
         console.print("Primary Setup cancelled; no packages were changed.", style=theme.DIM)
-        return []
+        return None
     started = time.monotonic()
     records = _install_steps(inst, "primary", queue, steps, console, show_headings=True)
     ran = [name for name in installer.primary_category_names(catalog)
@@ -301,17 +308,30 @@ def apply_customization(inst, catalog, console, dry_run, selected, theme_choice,
         command = f'sh -c "$(curl -fsSL {url})" "" --unattended'
         extra.append("oh-my-zsh: " + shlex.join(["bash", "-c", command])
                      + " (RUNZSH=no CHSH=no)")
+    starship = theme_choice == "starship" and "starship" in shells
+    if starship:
+        if inst.backend.key == "apt":
+            extra.append("starship: if apt has no package, fall back to "
+                         + shlex.join(["bash", "-c", _STARSHIP_INSTALL]))
+        paths = [path for _, path in shellConfig.starship_targets(fish_planned=want_fish)]
+        extra.append("Shell config: add starship init to " + ", ".join(paths))
     default_editor = _choose_default_editor(selected)
     if default_editor:
         extra.append(f"Shell config: set EDITOR and VISUAL to {default_editor}")
     if entries or extra:
-        if not _confirm_changes(inst, entries, "install", "Proceed with customization?",
-                                extra_lines=extra):
+        if not interactive:
+            # Profile imports print the preview and continue unattended, even on a TTY.
+            _preview_changes(inst, entries, "install", extra_lines=extra)
+        elif not _confirm_changes(inst, entries, "install", "Proceed with customization?",
+                                  extra_lines=extra):
             console.print("Customization cancelled; no customization changes were made.",
                           style=theme.DIM)
-            return [], [],
+            return [], []
 
     records = inst.install_sequence(entries) if entries else []
+
+    if starship:
+        notes.extend(_finish_starship(inst, console, dry_run, records))
 
     if theme_choice == "oh-my-zsh":
         records.append(_install_oh_my_zsh(console, dry_run))
@@ -345,7 +365,72 @@ def _choose_default_editor(selected):
     return selected[0]
 
 
+# Official starship installer, into a user-owned dir so the apt fallback needs no root.
+_STARSHIP_INSTALL = 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y -b "$HOME/.local/bin"'
+_STARSHIP_DESC = "Fast, minimal cross-shell prompt."
+_PRESENT_STATES = (INSTALLED, INSTALLED_UNVERIFIED, ALREADY_INSTALLED, UPGRADED)
+
+
+def _finish_starship(inst, console, dry_run, records):
+    """Fall back to the official installer when apt has no starship, then enable it in shell configs.
+
+    Replaces the starship record in place with the fallback's outcome. Returns report notes.
+    """
+    index = next((i for i, r in enumerate(records) if r.name == "starship"), None)
+    if index is None:
+        return []
+    record = records[index]
+    stderr = record.result.stderr if record.result else ""
+    if (inst.backend.key == "apt" and record.status == FAILED
+            and "Unable to locate package" in (stderr or "")):
+        record = _install_starship_script(console, dry_run)
+        records[index] = record
+
+    if dry_run:
+        return ["Starship prompt would be enabled in your shell config (dry-run)."]
+    if record.status not in _PRESENT_STATES:
+        return []
+    paths = shellConfig.set_starship_init(console=console)
+    if not paths:
+        return []
+    return [f"Starship prompt enabled in {', '.join(paths)}. Restart your terminal to apply."]
+
+
+def _install_starship_script(console, dry_run):
+    """Install starship with its official script into ~/.local/bin. Returns a PackageRecord."""
+    bin_dir = os.path.expanduser("~/.local/bin")
+    if shutil.which("starship") or os.path.isfile(os.path.join(bin_dir, "starship")):
+        return PackageRecord("Customization", "starship", _STARSHIP_DESC, ALREADY_INSTALLED,
+                             result=OperationResult("starship", ALREADY_INSTALLED))
+    console.print("starship is not packaged for this apt release; using the official installer "
+                  "from https://starship.rs", style=theme.WARN)
+    command = ["bash", "-o", "pipefail", "-c", _STARSHIP_INSTALL]
+    if dry_run:
+        return PackageRecord("Customization", "starship", _STARSHIP_DESC, SKIPPED,
+                             result=OperationResult("starship", SKIPPED, command, stdout="dry-run"))
+    if shutil.which("curl") is None:
+        result = OperationResult("starship", FAILED, command, stderr="curl is not installed")
+        return PackageRecord("Customization", "starship", _STARSHIP_DESC, FAILED, result=result,
+                             cause="curl missing",
+                             suggestion="Install curl (Essentials category), then select starship again.")
+    try:
+        os.makedirs(bin_dir, exist_ok=True)
+        proc = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                              errors="replace", timeout=300, check=False)
+        status = INSTALLED if proc.returncode == 0 else FAILED
+        result = OperationResult("starship", status, command, proc.stdout or "", proc.stderr or "",
+                                 proc.returncode)
+    except (OSError, subprocess.SubprocessError) as exc:
+        result = OperationResult("starship", FAILED, command, stderr=str(exc))
+    return PackageRecord("Customization", "starship", _STARSHIP_DESC, result.status, result=result)
+
+
 def _install_oh_my_zsh(console, dry_run):
+    # The official installer exits non-zero when its target folder already exists, so a re-run
+    # would otherwise be reported as a failure.
+    if os.path.isdir(os.environ.get("ZSH") or os.path.expanduser("~/.oh-my-zsh")):
+        return PackageRecord("Customization", "oh-my-zsh", "Community zsh configuration framework.",
+                             ALREADY_INSTALLED, result=OperationResult("oh-my-zsh", ALREADY_INSTALLED))
     url = "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
     console.print(f"oh-my-zsh installs by running its official installer from {url}", style=theme.WARN)
     if dry_run:
@@ -384,11 +469,12 @@ def _switch_shell_to_zsh(console):
         console.print(f"Could not switch shell: {exc}", style=theme.WARN)
 
 
-def _finalize_secondary(plat, records, started):
-    """Write the secondary report and clear the run marker."""
+def _finalize_secondary(plat, dry_run, records, started):
+    """Write the secondary report and clear the run marker (left untouched by a dry run)."""
     elapsed = time.monotonic() - started
     Report("secondary", plat.pretty_name, plat.backend_key).write(records, elapsed)
-    state.clear_run()
+    if not dry_run:
+        state.clear_run()
     return records
 
 
@@ -416,18 +502,24 @@ def run_secondary(inst, catalog, plat, console, filt):
         console.print("Cancelled.", style=theme.DIM)
         return []
 
-    state.merge_selections({"secondary_selections": [e["name"] for e in chosen]})
+    dry_run = inst.backend.dry_run
+    if not dry_run:
+        state.merge_selections({"secondary_selections": [e["name"] for e in chosen]})
     steps = _steps_from_queue(chosen, per_category=False)
     started = time.monotonic()
     records = _install_steps(inst, "secondary", chosen, steps, console, show_headings=False)
-    return _finalize_secondary(plat, records, started)
+    return _finalize_secondary(plat, dry_run, records, started)
 
 
 def resume_run(inst, catalog, plat, console, dry_run, marker):
     """Continue an interrupted run from the position its marker recorded, then finalize as usual."""
     run_type = marker.get("run")
     queue = marker.get("queue") or []
-    position = max(0, int(marker.get("position", 0)))
+    try:
+        position = max(0, int(marker.get("position", 0)))
+    except (TypeError, ValueError):
+        # A hand-edited or corrupt marker restarts the saved queue rather than crashing startup.
+        position = 0
     started = time.monotonic()
     if run_type == "primary":
         steps = _steps_from_queue(queue, per_category=True)
@@ -447,9 +539,10 @@ def resume_run(inst, catalog, plat, console, dry_run, marker):
             _preview_changes(inst, remaining, "install")
         records = _install_steps(inst, "secondary", queue, steps, console,
                                  start_pos=position, show_headings=False)
-        state.merge_selections({"secondary_selections": [entry.get("name") for entry in queue]})
-        _finalize_secondary(plat, records, started)
-    else:
+        if not dry_run:
+            state.merge_selections({"secondary_selections": [entry.get("name") for entry in queue]})
+        _finalize_secondary(plat, dry_run, records, started)
+    elif not dry_run:
         # An unrecognized run type is not something we can safely replay; drop the marker.
         state.clear_run()
 
@@ -462,7 +555,7 @@ def _maybe_resume(inst, catalog, plat, console, dry_run):
     category = marker.get("category") or "a previous run"
     if menu.confirm(console, f"Previous run was interrupted during {category}. Resume?", default=False):
         resume_run(inst, catalog, plat, console, dry_run, marker)
-    else:
+    elif not dry_run:
         state.clear_run()
 
 
@@ -518,9 +611,9 @@ def _remove_one(inst, candidate, index, total):
         inst.console.print(f"[{index}/{total}] removing {candidate['name']} ({package})")
         result = operation()
         if result.stdout:
-            inst.console.print(result.stdout)
+            inst.console.print(result.stdout, markup=False, highlight=False)
         if result.stderr:
-            inst.console.print(result.stderr)
+            inst.console.print(result.stderr, markup=False, highlight=False)
         inst.console.print(f"  -> {result.status}")
     else:
         result = inst.progress.run(index, total, "remove", candidate["name"], operation)
@@ -548,7 +641,7 @@ def action_export_profile(catalog, console, path):
         profile = profile_mod.from_selections(catalog, selections)
         profile_mod.export_profile(profile, path)
     except (profile_mod.ProfileError, OSError) as exc:
-        console.print(f"Could not export profile: {exc}", style=theme.ERROR)
+        console.print(f"Could not export profile: {exc}", style=theme.ERROR, markup=False)
         return 1
     console.print(f"Profile written to {path}.", style=theme.DIM)
     return 0
@@ -585,7 +678,7 @@ def _silent_secondary(inst, catalog, plat, console, profile):
     steps = _steps_from_queue(chosen, per_category=False)
     started = time.monotonic()
     records = _install_steps(inst, "secondary", chosen, steps, console, show_headings=False)
-    return _finalize_secondary(plat, records, started)
+    return _finalize_secondary(plat, inst.backend.dry_run, records, started)
 
 
 def run_import_profile(inst, catalog, plat, console, dry_run, profile):
@@ -756,7 +849,7 @@ def menu_import_profile(inst, catalog, plat, console, dry_run):
     try:
         profile = profile_mod.load_profile(path, catalog)
     except profile_mod.ProfileError as exc:
-        console.print(f"Cannot import profile: {exc}", style=theme.ERROR)
+        console.print(f"Cannot import profile: {exc}", style=theme.ERROR, markup=False)
         return False
     run_import_profile(inst, catalog, plat, console, dry_run, profile)
     return True
@@ -775,7 +868,8 @@ def _menu_secondary(inst, catalog, plat, console, dry_run, filt, end_shown):
         console.print("Secondary Setup requires Primary Setup to be run first.", style=theme.WARN)
         if not menu.confirm(console, "Run Primary Setup now?", default=False):
             return end_shown
-        run_primary(inst, catalog, plat, console, dry_run, inst.verbose, filt)
+        if run_primary(inst, catalog, plat, console, dry_run, inst.verbose, filt) is None:
+            return end_shown
     run_secondary(inst, catalog, plat, console, filt)
     return _show_end_once(plat, console, end_shown)
 
@@ -926,7 +1020,7 @@ def main(argv=None):
         filt = installer.resolve_filter(catalog, skip=_split_categories(args.skip),
                                         categories=_split_categories(args.categories))
     except installer.CategoryError as exc:
-        console.print(str(exc), style=theme.ERROR)
+        console.print(str(exc), style=theme.ERROR, markup=False)
         return 1
 
     classifier = ErrorClassifier(plat.backend_key)
@@ -936,7 +1030,7 @@ def main(argv=None):
         try:
             profile = profile_mod.load_profile(args.import_profile, catalog)
         except profile_mod.ProfileError as exc:
-            console.print(f"Cannot import profile: {exc}", style=theme.ERROR)
+            console.print(f"Cannot import profile: {exc}", style=theme.ERROR, markup=False)
             return 1
         run_import_profile(inst, catalog, plat, console, args.dry_run, profile)
         if not args.no_banner:

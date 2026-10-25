@@ -11,6 +11,28 @@ END_MARKER = "# END linux-setup-pro banner"
 EDITOR_BEGIN = "# BEGIN linux-setup-pro editor"
 EDITOR_END = "# END linux-setup-pro editor"
 
+STARSHIP_BEGIN = "# BEGIN linux-setup-pro starship"
+STARSHIP_END = "# END linux-setup-pro starship"
+
+# Per-shell starship init. Each picks up a ~/.local/bin install (the no-root fallback) even when
+# that dir is not on PATH yet, and is a no-op once starship is uninstalled.
+_STARSHIP_INIT = {
+    "bash": [
+        '[ -x "$HOME/.local/bin/starship" ] && ! command -v starship >/dev/null 2>&1 && PATH="$HOME/.local/bin:$PATH"',
+        'command -v starship >/dev/null 2>&1 && eval "$(starship init bash)"',
+    ],
+    "zsh": [
+        '[ -x "$HOME/.local/bin/starship" ] && ! command -v starship >/dev/null 2>&1 && PATH="$HOME/.local/bin:$PATH"',
+        'command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"',
+    ],
+    "fish": [
+        "if test -x $HOME/.local/bin/starship; and not type -q starship",
+        "    set -gx PATH $HOME/.local/bin $PATH",
+        "end",
+        "type -q starship; and starship init fish | source",
+    ],
+}
+
 # The instant-prompt block always sources a p10k-instant-prompt cache file.
 _P10K_SOURCE = "p10k-instant-prompt"
 
@@ -74,33 +96,37 @@ def backup_dotfile(path, console=None):
 
 
 def _strip_block(lines, begin, end):
-    """Remove an existing begin/end block, keeping everything else."""
-    out, skipping = [], False
-    for line in lines:
-        if line.strip() == begin:
-            skipping = True
-            continue
-        if line.strip() == end:
-            skipping = False
-            continue
-        if not skipping:
-            out.append(line)
+    """Remove existing begin/end blocks, keeping everything else.
+
+    A begin marker with no matching end marker (e.g. hand-edited away) is left untouched, so the
+    rest of the user's file is never silently discarded.
+    """
+    out, i = [], 0
+    while i < len(lines):
+        if lines[i].strip() == begin:
+            close = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == end), None)
+            if close is not None:
+                i = close + 1
+                continue
+        out.append(lines[i])
+        i += 1
     return out
 
 
-def _p10k_end_index(lines):
-    """Return the index just after a p10k instant-prompt block, or None if absent."""
-    source_idx = None
-    for i, line in enumerate(lines):
-        if _P10K_SOURCE in line:
-            source_idx = i
-    if source_idx is None:
+def _p10k_start_index(lines):
+    """Return the index where a p10k instant-prompt block (with its comment header) begins, or None.
+
+    p10k requires console output to happen above this block; output below it triggers the
+    'console output during zsh initialization' warning on every shell start.
+    """
+    first = next((i for i, line in enumerate(lines) if _P10K_SOURCE in line), None)
+    if first is None:
         return None
-    # The source line lives inside an `if ... fi` guard; insert after its `fi`.
-    for j in range(source_idx, min(source_idx + 6, len(lines))):
-        if lines[j].strip() == "fi":
-            return j + 1
-    return source_idx + 1
+    # Climb over the comment header p10k writes directly above its `if` guard.
+    while first > 0 and lines[first - 1].lstrip().startswith("#") \
+            and "linux-setup-pro" not in lines[first - 1]:
+        first -= 1
+    return first
 
 
 def insert_banner_block(body_lines, shell=None, console=None):
@@ -111,7 +137,7 @@ def insert_banner_block(body_lines, shell=None, console=None):
     lines = _strip_block(lines, BEGIN_MARKER, END_MARKER)
 
     block = [BEGIN_MARKER] + body_lines + [END_MARKER]
-    insert_at = _p10k_end_index(lines)
+    insert_at = _p10k_start_index(lines)
     if insert_at is None:
         new_lines = block + lines
     else:
@@ -142,6 +168,44 @@ def set_editor(editor, shell=None, console=None):
     return path
 
 
+def _fish_config_path():
+    return os.path.join(os.path.expanduser("~"), ".config", "fish", "config.fish")
+
+
+def starship_targets(fish_planned=False):
+    """Config files that should initialize starship, as (shell, path) pairs.
+
+    bash is always configured; zsh and fish only when the shell is installed or already has a
+    config file (fish_planned covers a fish install queued in the same run).
+    """
+    targets = [("bash", rc_path_for_shell("bash"))]
+    zshrc = rc_path_for_shell("zsh")
+    if shutil.which("zsh") or os.path.isfile(zshrc):
+        targets.append(("zsh", zshrc))
+    fish = _fish_config_path()
+    if fish_planned or shutil.which("fish") or os.path.isfile(fish):
+        targets.append(("fish", fish))
+    return targets
+
+
+def set_starship_init(console=None):
+    """Write the marked starship init block, last in each target config. Returns the paths written."""
+    written = []
+    for shell, path in starship_targets():
+        backup_dotfile(path, console)
+        lines = _strip_block(_read_lines(path), STARSHIP_BEGIN, STARSHIP_END)
+        block = [STARSHIP_BEGIN] + _STARSHIP_INIT[shell] + [STARSHIP_END]
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            _write_lines(path, lines + block)
+        except OSError as exc:
+            if console is not None:
+                console.print(f"Could not update {_tilde(path)}: {exc}", style=theme.WARN, markup=False)
+            continue
+        written.append(path)
+    return written
+
+
 def get_editor(shell=None):
     """Return the EDITOR value from our editor block, or None if it was never set."""
     inside = False
@@ -157,4 +221,4 @@ def get_editor(shell=None):
 
 
 def has_p10k(shell=None):
-    return _p10k_end_index(_read_lines(rc_path_for_shell(shell))) is not None
+    return _p10k_start_index(_read_lines(rc_path_for_shell(shell))) is not None
