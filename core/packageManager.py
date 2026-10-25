@@ -57,6 +57,9 @@ def _run(command, timeout=1800):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            # Package managers can emit bytes that are not valid in the locale's encoding; never
+            # let a decode error escape and abort the run.
+            errors="replace",
             timeout=timeout,
             check=False,
         )
@@ -73,6 +76,8 @@ class PackageManagerBackend:
     """Interface for a distro package manager. Concrete backends implement the four verbs."""
 
     key = None
+    # A non-fatal problem the installer should surface once (e.g. a failed index refresh), else None.
+    index_warning = None
 
     def __init__(self, dry_run=False):
         self.dry_run = dry_run
@@ -154,40 +159,47 @@ class AptBackend(PackageManagerBackend):
         super().__init__(dry_run=dry_run)
         self._index_ready = False
 
+    def _apt(self, *args):
+        # stdout is captured, so a debconf question would be invisible and hang the run; answer
+        # with defaults instead. Passed through env because sudo resets the environment.
+        return self._sudo_prefix() + ["env", "DEBIAN_FRONTEND=noninteractive", "apt-get"] + list(args)
+
     def is_installed(self, package):
         code, out, _, _ = _run(["dpkg-query", "-W", "-f=${Status}", package])
         return code == 0 and "install ok installed" in out
 
     def preview_command(self, operation, package):
         if operation == "install":
-            args = ["apt-get", "install", "-y", package]
-        else:
-            args = ["apt-get", "remove", "-y", package]
-        return self._sudo_prefix() + args
+            return self._apt("install", "-y", package)
+        return self._apt("remove", "-y", package)
 
     def install(self, package):
         if self.is_installed(package):
             return OperationResult(package, ALREADY_INSTALLED)
-        cmd = self._sudo_prefix() + ["apt-get", "install", "-y", package]
+        cmd = self._apt("install", "-y", package)
         if self.dry_run:
             return self._dry(package, cmd)
         if not self._index_ready:
-            update_code, update_out, update_err, update_dur = self._ensure_index()
-            if update_code != 0:
-                detail = update_err or update_out or f"apt-get update exited with code {update_code}"
-                return OperationResult(package, FAILED, cmd, update_out, detail,
-                                       update_code, update_dur)
-            self._index_ready = True
+            self._ensure_index()
         code, out, err, dur = _run(cmd)
         status = INSTALLED if code == 0 else FAILED
         return OperationResult(package, status, cmd, out, err, code, dur)
 
     def _ensure_index(self):
-        # apt refuses installs against a missing index; refresh once is cheap and idempotent.
-        return _run(self._sudo_prefix() + ["apt-get", "update"])
+        """Refresh the package index once per run. A failure is a warning, not a hard stop.
+
+        apt-get update exits non-zero when any single repository fails (e.g. a dead PPA), yet the
+        remaining indexes are still usable, so installs are attempted regardless.
+        """
+        self._index_ready = True
+        code, out, err, _ = _run(self._sudo_prefix() + ["apt-get", "update"])
+        if code != 0:
+            detail = (err or out).strip().splitlines()
+            reason = detail[-1] if detail else f"apt-get update exited with code {code}"
+            self.index_warning = f"Package index refresh failed ({reason}); installing from the existing index."
 
     def upgrade(self, package):
-        cmd = self._sudo_prefix() + ["apt-get", "install", "-y", "--only-upgrade", package]
+        cmd = self._apt("install", "-y", "--only-upgrade", package)
         if self.dry_run:
             return self._dry(package, cmd)
         code, out, err, dur = _run(cmd)
@@ -195,7 +207,7 @@ class AptBackend(PackageManagerBackend):
         return OperationResult(package, status, cmd, out, err, code, dur)
 
     def remove(self, package):
-        cmd = self._sudo_prefix() + ["apt-get", "remove", "-y", package]
+        cmd = self._apt("remove", "-y", package)
         if self.dry_run:
             return self._dry(package, cmd)
         code, out, err, dur = _run(cmd)

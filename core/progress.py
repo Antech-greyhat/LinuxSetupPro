@@ -8,6 +8,7 @@ from rich.spinner import Spinner
 from rich.live import Live
 from rich.text import Text
 
+from core.packageManager import OperationResult, FAILED
 from ui import theme
 
 # Verb shown while an operation runs, keyed by the operation kind.
@@ -29,7 +30,12 @@ class ProgressRenderer:
         result_box = {}
 
         def worker():
-            result_box["result"] = operation()
+            try:
+                result_box["result"] = operation()
+            except Exception as exc:
+                # An exception would otherwise die with the thread and leave no result to report;
+                # one broken package must never abort the whole run.
+                result_box["result"] = OperationResult(package, FAILED, stderr=str(exc))
 
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()

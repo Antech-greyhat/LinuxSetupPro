@@ -18,6 +18,7 @@ from core.packageManager import (
 from core.progress import ProgressRenderer
 from core.report import PackageRecord
 from core import state
+from ui import theme
 
 _CATALOG = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "packages.yaml")
 
@@ -50,6 +51,7 @@ class Installer:
         for offset, entry in enumerate(entries):
             index = start_index + offset
             record = self._install_one(entry, index, total)
+            self._echo_backend_warning()
             # Only packages this run actually installed become uninstall candidates.
             if record.status in (INSTALLED, INSTALLED_UNVERIFIED):
                 state.record_installed(self.backend.key, record)
@@ -87,10 +89,11 @@ class Installer:
         if self.verbose:
             self.console.print(f"[{index}/{total}] installing {name} ({pkg})")
             result = operation()
+            # Raw tool output is not rich markup; '[/path]' in it would otherwise raise MarkupError.
             if result.stdout:
-                self.console.print(result.stdout)
+                self.console.print(result.stdout, markup=False, highlight=False)
             if result.stderr:
-                self.console.print(result.stderr)
+                self.console.print(result.stderr, markup=False, highlight=False)
             self.console.print(f"  -> {result.status}")
             return result
         return self.progress.run(index, total, "install", name, operation)
@@ -121,6 +124,13 @@ class Installer:
 
     def _echo_unavailable(self, index, total, name):
         self.console.print(f"[{index}/{total}] {name} skipped (not available on this platform)")
+
+    def _echo_backend_warning(self):
+        """Print a backend's pending non-fatal warning once, then clear it."""
+        warning = self.backend.index_warning
+        if warning:
+            self.console.print(warning, style=theme.WARN, markup=False)
+            self.backend.index_warning = None
 
 
 def flatten_primary(catalog):

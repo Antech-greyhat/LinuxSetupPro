@@ -70,7 +70,10 @@ def _info_panel(rows, title, border_style, value_style="cyan"):
 
 def _local_ip():
     """Primary outbound-interface IP without sending any packets."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    except OSError:
+        return "unavailable"
     try:
         s.connect(("8.8.8.8", 80))
         return s.getsockname()[0]
@@ -78,6 +81,15 @@ def _local_ip():
         return "unavailable"
     finally:
         s.close()
+
+
+def _username():
+    # getpass raises when neither $USER-style variables nor a passwd entry exist (e.g. containers
+    # running under an arbitrary UID); the session panel must not crash startup over it.
+    try:
+        return getpass.getuser()
+    except (KeyError, OSError):
+        return "unknown"
 
 
 def _public_ip():
@@ -96,7 +108,7 @@ def _session_rows(platform_info, public_ip=False):
     else:
         platform_desc = "unknown"
     return [
-        ("USER", getpass.getuser()),
+        ("USER", _username()),
         ("HOST", socket.gethostname()),
         ("PLATFORM", platform_desc),
         ("IP", ip),

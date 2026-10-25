@@ -290,6 +290,7 @@ customization:
     starship:
       description: Fast, minimal cross-shell prompt.
       termux: starship
+      apt: starship
       dnf: starship
       pacman: starship
 
