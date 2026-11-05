@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="260" viewBox="0 0 1200 260" role="img" aria-labelledby="title desc">
+  <title id="title">This project is no longer maintained</title>
+  <desc id="desc">Ownership is open. Anyone can request it on Telegram at @r00tant3ch.</desc>
+  <defs>
+    <pattern id="hazard" width="56" height="56" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="56" height="56" fill="#111111"/>
+      <rect width="28" height="56" fill="#ffc400"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="260" fill="#b00020"/>
+  <rect width="1200" height="22" fill="url(#hazard)"/>
+  <rect y="238" width="1200" height="22" fill="url(#hazard)"/>
+  <g text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" fill="#ffffff">
+    <text x="600" y="112" font-size="68" font-weight="800" letter-spacing="3">NO LONGER MAINTAINED</text>
+    <text x="600" y="164" font-size="31" font-weight="700" fill="#ffc400" letter-spacing="1">OWNERSHIP IS OPEN: ANYONE CAN REQUEST IT</text>
+    <text x="600" y="208" font-size="25" font-weight="600">Request on Telegram: @r00tant3ch</text>
+  </g>
+</svg>

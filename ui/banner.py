@@ -35,8 +35,8 @@ _LOGO_DONE = r"""
 _DEV = [
     ("DEVELOPER", "Antech"),
     ("GITHUB", "https://github.com/Antech-greyhat"),
-    ("TELEGRAM", "https://t.me/AntechDevSecOps"),
-    ("X", "https://x.com/Antech1629"),
+    ("TELEGRAM", "https://t.me/r00tant3ch"),
+    ("X", "https://x.com/r00tant3ch"),
     ("LINKEDIN", "https://www.linkedin.com/in/antony-mwendwa-07679336b"),
 ]
 
@@ -140,7 +140,7 @@ def show_end(version, platform_info, console=None, ask_open=True):
     console.print(_info_panel(
         [("AUTHOR", "Antech"),
          ("GITHUB", "https://github.com/Antech-greyhat"),
-         ("TELEGRAM", "https://t.me/AntechDevSecOps")],
+         ("TELEGRAM", "https://t.me/r00tant3ch")],
         "[ SUPPORT DEVELOPMENT ]", theme.DEV))
     console.print()
 
