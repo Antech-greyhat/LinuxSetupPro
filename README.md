@@ -12,6 +12,13 @@
   <img src="https://img.shields.io/badge/tested-Arch-informational?style=flat-square" alt="arch" />
 </p>
 
+> [!WARNING]
+> **This project is no longer maintained by its creator, and ownership is open to anyone who wants it.**
+>
+> The repository is archived, so it is read-only: issues and pull requests are closed, and no further updates or fixes are planned. The code stays public and usable as it is.
+>
+> **To request ownership**, message Antech on [Telegram](https://t.me/AntechDevSecOps) with your GitHub username. Issues cannot be opened on an archived repository, so requests need to come through Telegram or another contact under [Developer](#developer). Under the [MIT License](LICENSE), you can also fork the project and continue it without asking.
+
 LinuxSetupPro is a cross-platform setup and hardening tool for Termux, Debian/Ubuntu, Fedora, and Arch/BlackArch. It installs a curated set of essentials, development runtimes, and networking utilities, then offers an opt-in tier of security and penetration-testing tools, terminal customization, honest per-package reporting, and a persistent terminal banner generator. It detects your platform, picks the right package manager, and never lets one failed package abort the run.
 
 ## Table of Contents
@@ -28,7 +35,7 @@ LinuxSetupPro is a cross-platform setup and hardening tool for Termux, Debian/Ub
 | [Supported Platforms](#supported-platforms) | Detection and backend mapping |
 | [FAQ](#faq) | Common questions and answers |
 | [Changelog](#changelog) | Version history and what changed in each release |
-| [Contributing](#contributing) | First-time walkthrough, plus how to add packages, error patterns, and new distros |
+| [Contributing](#contributing) | Archived status, plus how to add packages, error patterns, and new distros in a fork |
 | [License](#license) | MIT license |
 | [Developer](#developer) | Author and social links |
 
@@ -289,7 +296,7 @@ Edit `config/packages.yaml` and add an entry with its per-backend package names.
 
 ## Contributing
 
-Contributions are welcome, and first-timers especially. [CONTRIBUTING.md](CONTRIBUTING.md) opens with a step-by-step "Your First Contribution" walkthrough — fork, clone, branch, commit, push, and open a pull request — then covers how to add packages, error patterns, and support for new distributions.
+This repository is archived and does not accept contributions. To continue the project, fork it or [request ownership](#developer). [CONTRIBUTING.md](CONTRIBUTING.md) stays available as a guide to adding packages, error patterns, and support for new distributions.
 
 ## License
 
@@ -297,7 +304,7 @@ Released under the [MIT License](LICENSE), copyright Antech.
 
 ## Developer
 
-Built and maintained by Antech.
+Built by Antech, and no longer maintained.
 
 | Platform | Link |
 | --- | --- |

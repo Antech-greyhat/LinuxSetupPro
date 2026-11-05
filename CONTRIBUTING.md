@@ -1,5 +1,8 @@
 # Contributing to LinuxSetupPro
 
+> [!NOTE]
+> This repository is archived and no longer maintained, so pull requests cannot be opened here. This guide stays available for anyone working from a fork or taking over the project. See the [README](README.md) to request ownership.
+
 Thanks for your interest in improving LinuxSetupPro. This project values small, precise changes and honest behavior over feature count.
 
 ## Your First Contribution
