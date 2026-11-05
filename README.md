@@ -17,7 +17,7 @@
 >
 > The repository is archived, so it is read-only: issues and pull requests are closed, and no further updates or fixes are planned. The code stays public and usable as it is.
 >
-> **To request ownership**, message Antech on [Telegram](https://t.me/AntechDevSecOps) with your GitHub username. Issues cannot be opened on an archived repository, so requests need to come through Telegram or another contact under [Developer](#developer). Under the [MIT License](LICENSE), you can also fork the project and continue it without asking.
+> **To request ownership**, message Antech on [Telegram](https://t.me/r00tant3ch) with your GitHub username. Issues cannot be opened on an archived repository, so requests need to come through Telegram or another contact under [Developer](#developer). Under the [MIT License](LICENSE), you can also fork the project and continue it without asking.
 
 LinuxSetupPro is a cross-platform setup and hardening tool for Termux, Debian/Ubuntu, Fedora, and Arch/BlackArch. It installs a curated set of essentials, development runtimes, and networking utilities, then offers an opt-in tier of security and penetration-testing tools, terminal customization, honest per-package reporting, and a persistent terminal banner generator. It detects your platform, picks the right package manager, and never lets one failed package abort the run.
 
@@ -309,8 +309,8 @@ Built by Antech, and no longer maintained.
 | Platform | Link |
 | --- | --- |
 | GitHub | [Antech-greyhat](https://github.com/Antech-greyhat) |
-| Telegram | [AntechDevSecOps](https://t.me/AntechDevSecOps) |
-| X (Twitter) | [Antech1629](https://x.com/Antech1629) |
+| Telegram | [@r00tant3ch](https://t.me/r00tant3ch) |
+| X (Twitter) | [r00tant3ch](https://x.com/r00tant3ch) |
 | LinkedIn | [Antony Mwendwa](https://www.linkedin.com/in/antony-mwendwa-07679336b) |
 | WhatsApp | [+254714452396](https://wa.me/254714452396) |
 
